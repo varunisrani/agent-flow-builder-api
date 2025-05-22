@@ -50,9 +50,15 @@ app.post('/api/execute', async (req, res) => {
 
     // Create sandbox instance
     console.log('🔧 Creating E2B sandbox instance...');
-    const sbx = await Sandbox.create({ 
+    
+    // Check if E2B API key is provided
+    if (!process.env.E2B_API_KEY || process.env.E2B_API_KEY === 'your_e2b_api_key_here') {
+      throw new Error('E2B_API_KEY environment variable is required. Get your API key from https://e2b.dev/docs/getting-started/api-key');
+    }
+    
+    const sbx = await Sandbox.create({
       apiKey: process.env.E2B_API_KEY,
-      // Remove template specification to use default Python environment
+      // Use default Python environment
       timeout: 300000, // 5 minute timeout
       onStdout: (data) => {
         console.log('📤 Stdout:', data);
@@ -70,6 +76,14 @@ app.post('/api/execute', async (req, res) => {
 
     // Create proper directory structure for ADK agent detection
     console.log('📁 Creating agent directories...');
+    console.log('🔍 Sandbox object properties:', Object.keys(sbx));
+    
+    // Check if the sandbox has the expected methods
+    if (!sbx.commands) {
+      console.log('❌ Sandbox commands property not found. Available methods:', Object.keys(sbx));
+      throw new Error('E2B Sandbox API has changed. Please check the documentation.');
+    }
+    
     await sbx.commands.run('mkdir -p workspace/agent_package');
     console.log('✅ Workspace and agent_package directories created\n');
 
