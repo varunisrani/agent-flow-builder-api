@@ -52,7 +52,7 @@ app.post('/api/execute', async (req, res) => {
     console.log('🔧 Creating E2B sandbox instance...');
     const sbx = await Sandbox.create({ 
       apiKey: process.env.E2B_API_KEY,
-      template: 'python3', // Specify Python3 template for ADK compatibility
+      // Remove template specification to use default Python environment
       timeout: 300000, // 5 minute timeout
       onStdout: (data) => {
         console.log('📤 Stdout:', data);
