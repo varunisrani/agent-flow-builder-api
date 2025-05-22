@@ -71,19 +71,19 @@ app.post('/api/execute', async (req, res) => {
 
     // Create proper directory structure for ADK agent detection
     console.log('📁 Creating agent directories...');
-    await sbx.commands.run('mkdir -p workspace/agent_package');
-    console.log('✅ Workspace and agent_package directories created\n');
+    await sbx.commands.run('mkdir -p workspace/multi_tool_agent');
+    console.log('✅ Workspace and multi_tool_agent directories created\n');
 
     // Write files to the sandbox with proper ADK structure
     console.log('📝 Writing files to sandbox...');
     for (const [filename, content] of Object.entries(files)) {
-      await sbx.files.write(`workspace/agent_package/${filename}`, content);
+      await sbx.files.write(`workspace/multi_tool_agent/${filename}`, content);
       console.log(`✅ Created ${filename}`);
     }
     
-    // Create __init__.py file to make agent_package a proper Python package
+    // Create __init__.py file to make multi_tool_agent a proper Python package
     console.log('📝 Creating __init__.py file...');
-    await sbx.files.write('workspace/agent_package/__init__.py', 'from .agent import root_agent\n__all__ = ["root_agent"]\n');
+    await sbx.files.write('workspace/multi_tool_agent/__init__.py', 'from .agent import root_agent\n__all__ = ["root_agent"]\n');
     console.log('✅ Created __init__.py file');
     console.log('✅ All files written successfully\n');
 
@@ -155,19 +155,40 @@ app.post('/api/execute', async (req, res) => {
 ADK_API_KEY=AIzaSyB6ibSXYT7Xq7rSzHmq7MH76F95V3BCIJY
 `);
       
+      // Create a Python script to check if port is open
+      await sbx.files.write('workspace/check_port.py', `import socket
+import sys
+import time
+
+def is_port_open(host, port, timeout=1):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except:
+        sock.close()
+        return False
+
+def wait_for_port(port, max_attempts=30, delay=1):
+    print(f"Waiting for port {port} to be available...")
+    for attempt in range(max_attempts):
+        if is_port_open('localhost', port):
+            print(f"Port {port} is now open!")
+            return True
+        time.sleep(delay)
+    print(f"Timed out waiting for port {port}")
+    return False
+
+if __name__ == '__main__':
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+    sys.exit(0 if wait_for_port(port) else 1)
+`);
+
       // Create a startup script that properly detaches the process and binds to 0.0.0.0
       await sbx.files.write('workspace/start_adk.sh', `#!/bin/bash
 set -e  # Exit on any error
-
-# Install net-tools if not available (with sudo)
-if ! command -v netstat &> /dev/null; then
-    echo "Installing net-tools..."
-    if command -v apt &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y net-tools
-    elif command -v yum &> /dev/null; then
-        sudo yum install -y net-tools
-    fi
-fi
 
 # Source virtual environment
 source ./venv/bin/activate
@@ -188,60 +209,26 @@ fi
 # Kill any existing ADK web processes
 pkill -f "adk web" || true
 
-# Start ADK web server with proper error handling
+# Add the workspace directory to PYTHONPATH
+export PYTHONPATH=/home/user/workspace:$PYTHONPATH
+
+# Start ADK web server
 echo "Starting ADK web server..."
-nohup adk web \
-  --host 0.0.0.0 \
-  --port 8000 \
-  agent_package \
-  > adk_web.log 2>&1 &
+nohup adk web --host 0.0.0.0 --port 8000 > adk_web.log 2>&1 &
 
-# Save the PID and disown
-echo $! > adk_web.pid
-disown -h $!
+# Wait for server to start using Python script
+python3 check_port.py 8000
+exit_code=$?
 
-# Function to check if port is listening
-check_port() {
-    # Try ss command first (usually available by default)
-    if command -v ss &> /dev/null; then
-        ss -tuln | grep -q ":8000"
-        return $?
-    fi
-    
-    # Try nc as fallback
-    if command -v nc &> /dev/null; then
-        nc -z localhost 8000
-        return $?
-    fi
-    
-    # Last resort: check process and logs
-    if [ -f adk_web.pid ]; then
-        pid=$(cat adk_web.pid)
-        if kill -0 $pid 2>/dev/null; then
-            if ! grep -i "error" adk_web.log &>/dev/null; then
-                return 0
-            fi
-        fi
-    fi
-    
-    return 1
-}
-
-# Wait for server to start
-echo "Waiting for ADK web server to start..."
-for i in {1..30}; do
-    if check_port; then
-        echo "ADK web server started successfully"
-        cat adk_web.log
-        exit 0
-    fi
-    sleep 1
-done
-
-echo "Failed to start ADK web server"
-cat adk_web.log
-exit 1
-`);
+if [ $exit_code -eq 0 ]; then
+    echo "ADK web server started successfully"
+    cat adk_web.log
+    exit 0
+else
+    echo "Failed to start ADK web server"
+    cat adk_web.log
+    exit 1
+fi`);
       
       // Make the script executable
       await sbx.commands.run('chmod +x workspace/start_adk.sh', { timeoutMs: 30000 });
@@ -262,10 +249,10 @@ exit 1
         if (adkWebResult.stdout) console.log(adkWebResult.stdout);
         if (adkWebResult.stderr) console.log(adkWebResult.stderr);
         
-        // Verify server is running
-        const isRunning = await sbx.commands.run('netstat -tln | grep :8000', { timeoutMs: 5000 });
-        if (!isRunning.exitCode === 0) {
-          throw new Error('ADK web server failed to start - port 8000 not listening');
+        // Verify server is running using curl
+        const isRunning = await sbx.commands.run('curl -s -o /dev/null -w "%{http_code}" http://localhost:8000 || echo "Failed"', { timeoutMs: 5000 });
+        if (isRunning.stdout === "Failed") {
+          throw new Error('ADK web server failed to start - could not connect to port 8000');
         }
         
         console.log('✅ ADK web server started successfully');
