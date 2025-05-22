@@ -100,6 +100,16 @@ app.post('/api/execute', async (req, res) => {
     console.log('✅ Created __init__.py file');
     console.log('✅ All files written successfully\n');
 
+    // Install system dependencies first
+    console.log('📦 Installing system dependencies...');
+    const sysInstall = await sbx.commands.run('apt-get update && apt-get install -y net-tools procps lsof');
+    console.log('✅ System dependencies installed');
+    console.log('  • Exit code:', sysInstall.exitCode);
+    if (sysInstall.stderr) {
+      console.log('  • Warnings:', sysInstall.stderr.substring(0, 200) + '...');
+    }
+    console.log('');
+
     // Set up Python environment with a compatible Python version
     console.log('🐍 Setting up Python environment...');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -205,9 +215,28 @@ disown -h $!
 
 # Wait for server to start
 for i in {1..30}; do
-  if netstat -tln | grep -q ':8000'; then
-    echo "ADK web server started successfully"
-    exit 0
+  # Try multiple methods to check if port 8000 is listening
+  if command -v netstat >/dev/null 2>&1; then
+    if netstat -tln | grep -q ':8000'; then
+      echo "ADK web server started successfully (netstat)"
+      exit 0
+    fi
+  elif command -v lsof >/dev/null 2>&1; then
+    if lsof -i :8000 >/dev/null 2>&1; then
+      echo "ADK web server started successfully (lsof)"
+      exit 0
+    fi
+  elif command -v ss >/dev/null 2>&1; then
+    if ss -tln | grep -q ':8000'; then
+      echo "ADK web server started successfully (ss)"
+      exit 0
+    fi
+  else
+    # Fallback: try to connect to the port
+    if timeout 1 bash -c "</dev/tcp/localhost/8000" >/dev/null 2>&1; then
+      echo "ADK web server started successfully (tcp test)"
+      exit 0
+    fi
   fi
   sleep 1
 done
@@ -235,10 +264,52 @@ exit 1
         if (adkWebResult.stdout) console.log(adkWebResult.stdout);
         if (adkWebResult.stderr) console.log(adkWebResult.stderr);
         
-        // Verify server is running
-        const isRunning = await sbx.commands.run('netstat -tln | grep :8000', { timeoutMs: 5000 });
-        if (!isRunning.exitCode === 0) {
-          throw new Error('ADK web server failed to start - port 8000 not listening');
+        // Verify server is running using multiple methods
+        let serverRunning = false;
+        try {
+          // Try netstat first
+          const netstatCheck = await sbx.commands.run('netstat -tln | grep :8000', { timeoutMs: 5000 });
+          if (netstatCheck.exitCode === 0) {
+            serverRunning = true;
+            console.log('✅ Server verified with netstat');
+          }
+        } catch (error) {
+          // Try lsof as fallback
+          try {
+            const lsofCheck = await sbx.commands.run('lsof -i :8000', { timeoutMs: 5000 });
+            if (lsofCheck.exitCode === 0) {
+              serverRunning = true;
+              console.log('✅ Server verified with lsof');
+            }
+          } catch (error2) {
+            // Try ss as another fallback
+            try {
+              const ssCheck = await sbx.commands.run('ss -tln | grep :8000', { timeoutMs: 5000 });
+              if (ssCheck.exitCode === 0) {
+                serverRunning = true;
+                console.log('✅ Server verified with ss');
+              }
+            } catch (error3) {
+              console.log('⚠️ Could not verify server with network tools, trying HTTP check...');
+            }
+          }
+        }
+        
+        if (!serverRunning) {
+          // Final fallback: try HTTP connection
+          try {
+            const httpCheck = await sbx.commands.run('curl -s -o /dev/null -w "%{http_code}" http://localhost:8000', { timeoutMs: 10000 });
+            if (httpCheck.stdout && httpCheck.stdout.trim() !== '000') {
+              serverRunning = true;
+              console.log('✅ Server verified with HTTP check');
+            }
+          } catch (error) {
+            console.log('⚠️ HTTP check also failed');
+          }
+        }
+        
+        if (!serverRunning) {
+          throw new Error('ADK web server failed to start - could not verify server is listening on port 8000');
         }
         
         console.log('✅ ADK web server started successfully');
