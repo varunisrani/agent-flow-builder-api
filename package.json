@@ -1,16 +1,22 @@
 {
   "name": "express-hello-world",
   "version": "1.0.0",
-  "description": "Express Hello World on Render",
+  "description": "Express Hello World on Render with E2B Code Interpreter",
   "main": "app.js",
+  "type": "module",
   "repository": "https://github.com/render-examples/express-hello-world",
   "author": "Render Developers",
   "license": "MIT",
   "private": false,
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "dev": "node app.js"
   },
   "dependencies": {
-    "express": "^5.0.0"
+    "express": "^5.0.0",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "@e2b/code-interpreter": "^0.0.5",
+    "dotenv": "^16.4.5"
   }
 }
