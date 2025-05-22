@@ -4,7 +4,10 @@
   "description": "Express Hello World on Render with E2B Code Interpreter",
   "main": "app.js",
   "type": "module",
-  "repository": "https://github.com/render-examples/express-hello-world",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/render-examples/express-hello-world.git"
+  },
   "author": "Render Developers",
   "license": "MIT",
   "private": false,
@@ -14,9 +17,14 @@
   },
   "dependencies": {
     "@e2b/code-interpreter": "^1.5.0",
-    "body-parser": "^1.20.2",
+    "body-parser": "^1.20.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.5.0",
     "express": "^4.21.2"
-  }
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/render-examples/express-hello-world/issues"
+  },
+  "homepage": "https://github.com/render-examples/express-hello-world#readme"
 }

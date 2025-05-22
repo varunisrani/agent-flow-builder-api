@@ -1,8 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import { Sandbox } from '@e2b/code-interpreter';
-import 'dotenv/config';
 
 // Create Express server
 const app = express();
@@ -50,15 +50,8 @@ app.post('/api/execute', async (req, res) => {
 
     // Create sandbox instance
     console.log('🔧 Creating E2B sandbox instance...');
-    
-    // Check if E2B API key is provided
-    if (!process.env.E2B_API_KEY || process.env.E2B_API_KEY === 'your_e2b_api_key_here') {
-      throw new Error('E2B_API_KEY environment variable is required. Get your API key from https://e2b.dev/docs/getting-started/api-key');
-    }
-    
-    const sbx = await Sandbox.create({
+    const sbx = await Sandbox.create({ 
       apiKey: process.env.E2B_API_KEY,
-      // Use default Python environment
       timeout: 300000, // 5 minute timeout
       onStdout: (data) => {
         console.log('📤 Stdout:', data);
@@ -69,21 +62,15 @@ app.post('/api/execute', async (req, res) => {
       env: {
         GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
         ADK_API_KEY: process.env.ADK_API_KEY,
-        PYTHONUNBUFFERED: '1' // Ensure Python output is not buffered
-      }
+        PYTHONUNBUFFERED: '1', // Ensure Python output is not buffered
+        PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+      },
+      rootUser: true // Run as root to avoid permission issues
     });
     console.log('✅ Sandbox created successfully\n');
 
     // Create proper directory structure for ADK agent detection
     console.log('📁 Creating agent directories...');
-    console.log('🔍 Sandbox object properties:', Object.keys(sbx));
-    
-    // Check if the sandbox has the expected methods
-    if (!sbx.commands) {
-      console.log('❌ Sandbox commands property not found. Available methods:', Object.keys(sbx));
-      throw new Error('E2B Sandbox API has changed. Please check the documentation.');
-    }
-    
     await sbx.commands.run('mkdir -p workspace/agent_package');
     console.log('✅ Workspace and agent_package directories created\n');
 
@@ -99,16 +86,6 @@ app.post('/api/execute', async (req, res) => {
     await sbx.files.write('workspace/agent_package/__init__.py', 'from .agent import root_agent\n__all__ = ["root_agent"]\n');
     console.log('✅ Created __init__.py file');
     console.log('✅ All files written successfully\n');
-
-    // Skip system dependencies installation - E2B sandboxes don't have root access
-    // We'll use built-in tools and alternative methods for port checking
-    console.log('📦 Checking available system tools...');
-    const toolsCheck = await sbx.commands.run('which python3 pip curl ss || echo "Some tools missing but will use alternatives"');
-    console.log('✅ System tools check completed');
-    if (toolsCheck.stdout) {
-      console.log('  • Available tools:', toolsCheck.stdout.trim());
-    }
-    console.log('');
 
     // Set up Python environment with a compatible Python version
     console.log('🐍 Setting up Python environment...');
@@ -182,6 +159,16 @@ ADK_API_KEY=AIzaSyB6ibSXYT7Xq7rSzHmq7MH76F95V3BCIJY
       await sbx.files.write('workspace/start_adk.sh', `#!/bin/bash
 set -e  # Exit on any error
 
+# Install net-tools if not available (with sudo)
+if ! command -v netstat &> /dev/null; then
+    echo "Installing net-tools..."
+    if command -v apt &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y net-tools
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y net-tools
+    fi
+fi
+
 # Source virtual environment
 source ./venv/bin/activate
 
@@ -198,59 +185,61 @@ if ! command -v adk &> /dev/null; then
     pip install --upgrade google-adk
 fi
 
-# Kill any existing ADK processes
-pkill -f "adk api_server\\|adk web" || true
+# Kill any existing ADK web processes
+pkill -f "adk web" || true
 
-# Start ADK API server (more reliable than web interface)
-nohup adk api_server \\
-  --host 0.0.0.0 \\
-  --port 8000 \\
-  > adk_server.log 2>&1 &
+# Start ADK web server with proper error handling
+echo "Starting ADK web server..."
+nohup adk web \
+  --host 0.0.0.0 \
+  --port 8000 \
+  agent_package \
+  > adk_web.log 2>&1 &
 
 # Save the PID and disown
-echo $! > adk_server.pid
+echo $! > adk_web.pid
 disown -h $!
 
+# Function to check if port is listening
+check_port() {
+    # Try ss command first (usually available by default)
+    if command -v ss &> /dev/null; then
+        ss -tuln | grep -q ":8000"
+        return $?
+    fi
+    
+    # Try nc as fallback
+    if command -v nc &> /dev/null; then
+        nc -z localhost 8000
+        return $?
+    fi
+    
+    # Last resort: check process and logs
+    if [ -f adk_web.pid ]; then
+        pid=$(cat adk_web.pid)
+        if kill -0 $pid 2>/dev/null; then
+            if ! grep -i "error" adk_web.log &>/dev/null; then
+                return 0
+            fi
+        fi
+    fi
+    
+    return 1
+}
+
 # Wait for server to start
+echo "Waiting for ADK web server to start..."
 for i in {1..30}; do
-  # Use multiple methods to check if port 8000 is listening
-  # Try ss first (usually available in modern systems)
-  if command -v ss >/dev/null 2>&1; then
-    if ss -tln 2>/dev/null | grep -q ':8000'; then
-      echo "ADK API server started successfully (ss)"
-      exit 0
+    if check_port; then
+        echo "ADK web server started successfully"
+        cat adk_web.log
+        exit 0
     fi
-  fi
-  
-  # Try curl to check HTTP response
-  if command -v curl >/dev/null 2>&1; then
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost:8000 2>/dev/null | grep -q "200\\|404\\|500"; then
-      echo "ADK API server started successfully (curl)"
-      exit 0
-    fi
-  fi
-  
-  # Fallback: try to connect to the port using bash built-in
-  if timeout 1 bash -c "echo >/dev/tcp/localhost/8000" >/dev/null 2>&1; then
-    echo "ADK API server started successfully (tcp test)"
-    exit 0
-  fi
-  
-  # Alternative: check if the process is running
-  if pgrep -f "adk api_server\\|adk web" >/dev/null 2>&1; then
-    echo "ADK server process is running"
-    # Give it a bit more time to bind to port
-    sleep 2
-    if timeout 1 bash -c "echo >/dev/tcp/localhost/8000" >/dev/null 2>&1; then
-      echo "ADK API server started successfully (process + tcp)"
-      exit 0
-    fi
-  fi
-  
-  sleep 1
+    sleep 1
 done
 
-echo "Failed to start ADK API server"
+echo "Failed to start ADK web server"
+cat adk_web.log
 exit 1
 `);
       
@@ -273,63 +262,10 @@ exit 1
         if (adkWebResult.stdout) console.log(adkWebResult.stdout);
         if (adkWebResult.stderr) console.log(adkWebResult.stderr);
         
-        // Verify server is running using E2B-compatible methods
-        let serverRunning = false;
-        
-        // Try ss first (usually available)
-        try {
-          const ssCheck = await sbx.commands.run('ss -tln 2>/dev/null | grep :8000', { timeoutMs: 5000 });
-          if (ssCheck.exitCode === 0) {
-            serverRunning = true;
-            console.log('✅ Server verified with ss');
-          }
-        } catch (error) {
-          console.log('⚠️ ss check failed, trying alternatives...');
-        }
-        
-        // Try HTTP check if ss failed
-        if (!serverRunning) {
-          try {
-            const httpCheck = await sbx.commands.run('curl -s -o /dev/null -w "%{http_code}" http://localhost:8000', { timeoutMs: 10000 });
-            if (httpCheck.stdout && httpCheck.stdout.trim() !== '000' && httpCheck.stdout.trim() !== '') {
-              serverRunning = true;
-              console.log('✅ Server verified with HTTP check (status:', httpCheck.stdout.trim() + ')');
-            }
-          } catch (error) {
-            console.log('⚠️ HTTP check failed, trying TCP test...');
-          }
-        }
-        
-        // Final fallback: TCP connection test
-        if (!serverRunning) {
-          try {
-            const tcpCheck = await sbx.commands.run('timeout 3 bash -c "echo >/dev/tcp/localhost/8000"', { timeoutMs: 5000 });
-            if (tcpCheck.exitCode === 0) {
-              serverRunning = true;
-              console.log('✅ Server verified with TCP test');
-            }
-          } catch (error) {
-            console.log('⚠️ TCP test also failed');
-          }
-        }
-        
-        // Check if process is at least running
-        if (!serverRunning) {
-          try {
-            const processCheck = await sbx.commands.run('pgrep -f "adk api_server\\|adk web"', { timeoutMs: 3000 });
-            if (processCheck.exitCode === 0 && processCheck.stdout.trim()) {
-              console.log('⚠️ ADK process is running but port verification failed');
-              console.log('  • Process PID:', processCheck.stdout.trim());
-              console.log('  • Assuming server is starting up...');
-              serverRunning = true; // Allow it to proceed
-            }
-          } catch (error) {
-            console.log('⚠️ Process check failed');
-          }
-        }
-        
-        if (!serverRunning) {
-          throw new Error('ADK web server failed to start - could not verify server is listening on port 8000');
+        // Verify server is running
+        const isRunning = await sbx.commands.run('netstat -tln | grep :8000', { timeoutMs: 5000 });
+        if (!isRunning.exitCode === 0) {
+          throw new Error('ADK web server failed to start - port 8000 not listening');
         }
         
         console.log('✅ ADK web server started successfully');
@@ -393,7 +329,7 @@ exit 1
             
             // Try to kill the ADK web process if it's running
             try {
-              const killResult = await sbx.commands.run('if [ -f workspace/adk_server.pid ]; then kill $(cat workspace/adk_server.pid) 2>/dev/null || true; rm workspace/adk_server.pid; fi', { timeoutMs: 10000 });
+              const killResult = await sbx.commands.run('if [ -f workspace/adk_web.pid ]; then kill $(cat workspace/adk_web.pid) 2>/dev/null || true; rm workspace/adk_web.pid; fi', { timeoutMs: 10000 });
               console.log('📋 ADK web kill result:', killResult.stdout || 'No output');
             } catch (killError) {
               console.error('Failed to kill ADK web process:', killError.message);
@@ -495,21 +431,16 @@ app.get('/', (req, res) => {
       { method: 'POST', path: '/api/execute', description: 'Execute code in sandbox' },
       { method: 'GET', path: '/api/health', description: 'Health check endpoint' }
     ],
-    note: "Express server with E2B Code Interpreter for running Google ADK agents in sandboxed environments."
+    note: "This is a Vercel-compatible version with limited functionality. File operations that require local filesystem won't work."
   });
 });
 
-// Start the server
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Agent Flow Builder API listening on port ${PORT}!`);
-  console.log(`📋 Available endpoints:`);
-  console.log(`   • GET  /           - API information`);
-  console.log(`   • GET  /api/health - Health check`);
-  console.log(`   • POST /api/execute - Execute code in sandbox`);
-});
-
-server.keepAliveTimeout = 120 * 1000;
-server.headersTimeout = 120 * 1000;
-
-// Export for Vercel serverless function compatibility
+// Export for Vercel serverless function
 export default app;
+
+// Start the server if not being imported
+if (process.env.NODE_ENV !== 'vercel') {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server is running on http://localhost:${PORT}`);
+  });
+} 
