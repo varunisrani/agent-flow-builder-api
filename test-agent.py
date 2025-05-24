@@ -91,6 +91,22 @@ def greet():
     """
     return "Hello! I'm a test agent. How can I help you today?"
 
+@agent.message
+def handle_message(message: str):
+    """
+    Default message handler for direct text inputs.
+    
+    Args:
+        message (str): The user's input message
+        
+    Returns:
+        str: A response to the user's message
+    """
+    if message.lower() in ["hi", "hello", "hey", "greetings"]:
+        return greet()
+    else:
+        return "I received your message. Feel free to ask me anything or try one of my tools!"
+
 # Export the agent (required for ADK to detect it)
 root_agent = agent
 
