@@ -53,6 +53,9 @@ def calculate(expression: str):
         str: Result of the calculation
     """
     try:
+        # Convert JavaScript boolean literals to Python if present
+        expression = expression.replace('false', 'False').replace('true', 'True')
+        
         # Simple safety check - only allow basic math operations
         allowed_chars = set('0123456789+-*/()., ')
         if not all(c in allowed_chars for c in expression):
@@ -75,6 +78,16 @@ def echo_message(message: str):
         str: The echoed message
     """
     return f"Echo: {message}"
+
+@agent.tool
+def greet():
+    """
+    Handle simple greetings.
+    
+    Returns:
+        str: A greeting response
+    """
+    return "Hello! I'm a test agent. How can I help you today?"
 
 # Export the agent (required for ADK to detect it)
 root_agent = agent
