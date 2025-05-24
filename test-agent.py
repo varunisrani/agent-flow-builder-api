@@ -4,12 +4,14 @@ This is a basic agent to verify that your Google ADK setup is working correctly.
 """
 
 from google.adk import Agent
+from google.adk.llm import LlmConfig
 
 # Create the main agent
 agent = Agent(
     name="test_agent",
     description="A simple test agent to verify Google ADK functionality",
-    instructions="You are a helpful test agent. Respond to user queries and demonstrate basic functionality."
+    instructions="You are a helpful test agent. Respond to user queries and demonstrate basic functionality.",
+    llm=LlmConfig(model="gemini-pro")
 )
 
 @agent.tool
