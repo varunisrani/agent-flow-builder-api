@@ -139,7 +139,7 @@ app.post('/api/execute', async (req, res) => {
     // Create ADK config file
     console.log('📝 Creating ADK config file...');
     await sbx.files.write('workspace/adk.config.json', JSON.stringify({
-      "api_key": "AIzaSyB6ibSXYT7Xq7rSzHmq7MH76F95V3BCIJY"
+      "api_key": "AIzaSyDKYSA-rs_GE5mCqA9b1yw8NFWH9fSn-Vc"
     }, null, 2));
     console.log('✅ ADK config file created');
     
@@ -151,8 +151,8 @@ app.post('/api/execute', async (req, res) => {
     
     try {
       // Create a .env file with the Google ADK API key
-      await sbx.files.write('workspace/.env', `GOOGLE_API_KEY=AIzaSyB6ibSXYT7Xq7rSzHmq7MH76F95V3BCIJY
-ADK_API_KEY=AIzaSyB6ibSXYT7Xq7rSzHmq7MH76F95V3BCIJY
+      await sbx.files.write('workspace/.env', `GOOGLE_API_KEY=AIzaSyDKYSA-rs_GE5mCqA9b1yw8NFWH9fSn-Vc
+ADK_API_KEY=AIzaSyDKYSA-rs_GE5mCqA9b1yw8NFWH9fSn-Vc
 `);
       
       // Create a Python script to check if port is open
