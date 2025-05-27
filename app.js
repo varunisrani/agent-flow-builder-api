@@ -8,9 +8,65 @@ import { Sandbox } from '@e2b/code-interpreter';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Helper function to set CORS headers consistently
+const setCorsHeaders = (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'http://localhost:8080', 
+    'https://cogentx.dev', 
+    'http://localhost:3000', 
+    'http://localhost:5173', 
+    'https://agent-flow-builder.vercel.app', 
+    'https://agent-flow-builder-api.onrender.com'
+  ];
+  
+  // Log origin for debugging
+  console.log(`CORS request from origin: ${origin || 'undefined'}, path: ${req.path}, method: ${req.method}`);
+  
+  // In production or if the origin is in our list, we'll allow it
+  if (origin && (process.env.NODE_ENV === 'production' || allowedOrigins.includes(origin))) {
+    res.header('Access-Control-Allow-Origin', origin);
+    console.log(`Setting Access-Control-Allow-Origin: ${origin}`);
+  } else {
+    // If origin is not in our list or undefined, use wildcard
+    res.header('Access-Control-Allow-Origin', '*');
+    console.log('Setting Access-Control-Allow-Origin: * (wildcard)');
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+};
+
 // CORS middleware with proper configuration
 app.use(cors({
-  origin: ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'],  // Allow specific origins
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:8080', 
+      'https://cogentx.dev', 
+      'http://localhost:3000', 
+      'http://localhost:5173', 
+      'https://agent-flow-builder.vercel.app', 
+      'https://agent-flow-builder-api.onrender.com'
+    ];
+    
+    // In production, allow all origins
+    if (process.env.NODE_ENV === 'production') {
+      callback(null, true);
+      return;
+    }
+    
+    // Check if the origin is in our allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      // Allow all origins if not explicitly listed
+      callback(null, true);
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Origin'],
   credentials: true,
@@ -20,44 +76,13 @@ app.use(cors({
 
 // Handle OPTIONS requests explicitly
 app.options('*', (req, res) => {
-  // Set specific origins for CORS
-  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'];
-  const origin = req.headers.origin;
-  
-  // Always respond to localhost:8080 with correct CORS headers
-  if (origin === 'http://localhost:8080') {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  } else if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    // If origin is not in our list, default to localhost:8080
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  setCorsHeaders(req, res);
   res.status(204).end();
 });
 
 // Add a custom middleware to ensure CORS headers are set on all responses
 app.use((req, res, next) => {
-  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'];
-  const origin = req.headers.origin;
-  
-  // Always prioritize localhost:8080
-  if (origin === 'http://localhost:8080') {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  } else if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    // If origin is not in our list, default to localhost:8080
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  setCorsHeaders(req, res);
   next();
 });
 
@@ -71,23 +96,8 @@ app.post('/api/execute', async (req, res) => {
   console.log('\n🚀 Starting code execution request...');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
-  // Set CORS headers for this specific response based on origin
-  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'];
-  const origin = req.headers.origin;
-  
-  // Always prioritize localhost:8080
-  if (origin === 'http://localhost:8080') {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  } else if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    // If origin is not in our list, default to localhost:8080
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  // Set CORS headers for this specific response
+  setCorsHeaders(req, res);
   
   try {
     const { files } = req.body;
@@ -429,9 +439,7 @@ fi`);
         }
         
         // Set CORS headers on error response
-        res.header('Access-Control-Allow-Origin', '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        setCorsHeaders(req, res);
         
         return res.status(500).json({
           error: error instanceof Error ? error.message : 'Error running ADK web command',
@@ -468,9 +476,7 @@ fi`);
       }
       
       // Set CORS headers on error response
-      res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+      setCorsHeaders(req, res);
       
       return res.status(500).json({
         error: error instanceof Error ? error.message : 'Error running ADK web command',
@@ -501,9 +507,7 @@ fi`);
     console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     // Set CORS headers on error response
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    setCorsHeaders(req, res);
     
     return res.status(500).json(errorResponse);
   }
@@ -512,9 +516,7 @@ fi`);
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   // Set CORS headers
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  setCorsHeaders(req, res);
   
   res.status(200).json({ 
     status: 'ok', 
@@ -526,9 +528,7 @@ app.get('/api/health', (req, res) => {
 // Home route with API info
 app.get('/', (req, res) => {
   // Set CORS headers
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  setCorsHeaders(req, res);
   
   res.status(200).json({
     name: 'Agent Flow Builder API',
