@@ -10,9 +10,9 @@ const PORT = process.env.PORT || 3001;
 
 // CORS middleware with proper configuration
 app.use(cors({
-  origin: '*', // Allow all origins
+  origin: ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'],  // Allow specific origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+  allowedHeaders: ['X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Origin'],
   credentials: true,
   preflightContinue: false,
   optionsSuccessStatus: 204
@@ -20,12 +20,33 @@ app.use(cors({
 
 // Handle OPTIONS requests explicitly
 app.options('*', (req, res) => {
+  // Set specific origins for CORS
+  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080'); // Default to localhost:8080
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
   res.status(204).end();
 });
 
 // Add a custom middleware to ensure CORS headers are set on all responses
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080'); // Default to localhost:8080
+  }
+  
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -42,18 +63,35 @@ app.post('/api/execute', async (req, res) => {
   console.log('\n🚀 Starting code execution request...');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
+  // Set CORS headers for this specific response based on origin
+  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080'); // Default to localhost:8080
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   try {
     const { files } = req.body;
     
     if (!files || !files['agent.py']) {
       console.log('❌ Error: No agent.py file provided');
-      // Set CORS headers on error response
-      res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
       return res.status(400).json({ error: 'No agent.py file provided' });
     }
 
+    // Check if the agent code is an MCP agent
+    const isMcpAgent = files['agent.py'].includes('MCPToolset') || 
+                       files['agent.py'].includes('mcp_tool') || 
+                       files['agent.py'].includes('StdioServerParameters');
+    
+    console.log(`📊 Agent type: ${isMcpAgent ? 'MCP Agent' : 'Standard ADK Agent'}`);
+    
     console.log('📝 Files to create:');
     console.log('━━━━━━━━━━━━━━━━━');
     Object.entries(files).forEach(([filename, content]) => {
@@ -140,6 +178,19 @@ app.post('/api/execute', async (req, res) => {
       console.log(pipErrors);
     }
     
+    // Install MCP-specific dependencies if needed
+    if (isMcpAgent) {
+      console.log('  • Installing MCP-specific dependencies...');
+      try {
+        const mcpResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install -U "google-adk[mcp]" aiohttp');
+        console.log(`  • MCP dependencies exit code: ${mcpResult.exitCode}`);
+        if (mcpResult.stdout) console.log(`  • MCP output: ${mcpResult.stdout}`);
+        if (mcpResult.stderr) console.log(`  • MCP errors: ${mcpResult.stderr}`);
+      } catch (error) {
+        console.log(`  • ⚠️ Warning: Error installing MCP dependencies: ${error.message}`);
+      }
+    }
+    
     // Verify the installation
     console.log('\n📋 Verifying installation...');
     const verifyResult = await sbx.commands.run('source workspace/venv/bin/activate && pip list | grep google-adk');
@@ -213,10 +264,28 @@ export ADK_API_KEY=\${ADK_API_KEY:-$ADK_API_KEY}
 # Change to workspace directory
 cd /home/user/workspace
 
+# Create directory for MCP filesystem access if needed
+mkdir -p multi_tool_agent/accessible_files
+chmod 777 multi_tool_agent/accessible_files
+echo "Hello from the MCP filesystem server!" > multi_tool_agent/accessible_files/hello.txt
+echo "This is a test file created for MCP filesystem access." > multi_tool_agent/accessible_files/test.txt
+
 # Check if ADK is installed correctly
 if ! command -v adk &> /dev/null; then
     echo "ADK command not found. Installing..."
     pip install --upgrade google-adk
+fi
+
+# Install Node.js packages needed for MCP tools
+echo "Installing Node.js packages for MCP support..."
+if [ -d "/home/user/workspace/node_modules" ]; then
+    echo "Node modules already installed, skipping..."
+else
+    # Install MCP server packages
+    npm init -y > /dev/null 2>&1 || true
+    npm install --no-fund --no-audit --silent @modelcontextprotocol/server-filesystem > /dev/null 2>&1 || true
+    npm install --no-fund --no-audit --silent @modelcontextprotocol/server-github > /dev/null 2>&1 || true
+    npm install --no-fund --no-audit --silent @modelcontextprotocol/server-time > /dev/null 2>&1 || true
 fi
 
 # Kill any existing ADK web processes
@@ -316,11 +385,6 @@ fi`);
         console.log(`• Memory Usage: ${response.memoryUsage.toFixed(2)}MB`);
         console.log(`• Status: ${response.executionDetails.status}`);
         console.log(`• Server URL: ${response.executionDetails.serverUrl}`);
-        
-        // Set CORS headers explicitly for this response
-        res.header('Access-Control-Allow-Origin', '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
         
         res.status(200).json(response);
       } catch (error) {
@@ -472,7 +536,8 @@ export default app;
 if (process.env.NODE_ENV !== 'vercel') {
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
-    console.log(`🔓 CORS is enabled for all origins`);
+    console.log(`🔓 CORS is enabled for specific origins, including http://localhost:8080`);
     console.log(`🛡️  Full CORS headers are being set on all responses`);
+    console.log(`🔌 MCP Agent support is enabled with filesystem, github, and time tools`);
   });
 } 
