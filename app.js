@@ -23,6 +23,15 @@ app.options('*', (req, res) => {
   res.status(204).end();
 });
 
+// Add a custom middleware to ensure CORS headers are set on all responses
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  next();
+});
+
 // Middleware
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
@@ -38,6 +47,10 @@ app.post('/api/execute', async (req, res) => {
     
     if (!files || !files['agent.py']) {
       console.log('❌ Error: No agent.py file provided');
+      // Set CORS headers on error response
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
       return res.status(400).json({ error: 'No agent.py file provided' });
     }
 
@@ -304,6 +317,11 @@ fi`);
         console.log(`• Status: ${response.executionDetails.status}`);
         console.log(`• Server URL: ${response.executionDetails.serverUrl}`);
         
+        // Set CORS headers explicitly for this response
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        
         res.status(200).json(response);
       } catch (error) {
         console.error('\n❌ Error running ADK web command:');
@@ -333,6 +351,11 @@ fi`);
         } catch (cleanupError) {
           console.error('Error cleaning up sandbox after error:', cleanupError);
         }
+        
+        // Set CORS headers on error response
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
         
         return res.status(500).json({
           error: error instanceof Error ? error.message : 'Error running ADK web command',
@@ -368,6 +391,11 @@ fi`);
         console.error('Error cleaning up sandbox after error:', cleanupError);
       }
       
+      // Set CORS headers on error response
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+      
       return res.status(500).json({
         error: error instanceof Error ? error.message : 'Error running ADK web command',
         executionTime: Date.now() - startTime
@@ -396,12 +424,22 @@ fi`);
     console.error(`• Execution Time: ${errorResponse.executionTime}ms`);
     console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
+    // Set CORS headers on error response
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    
     return res.status(500).json(errorResponse);
   }
 });
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+  // Set CORS headers
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
   res.status(200).json({ 
     status: 'ok', 
     message: 'Server is running',
@@ -411,6 +449,11 @@ app.get('/api/health', (req, res) => {
 
 // Home route with API info
 app.get('/', (req, res) => {
+  // Set CORS headers
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
   res.status(200).json({
     name: 'Agent Flow Builder API',
     version: '1.0.0',
@@ -429,5 +472,7 @@ export default app;
 if (process.env.NODE_ENV !== 'vercel') {
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
+    console.log(`🔓 CORS is enabled for all origins`);
+    console.log(`🛡️  Full CORS headers are being set on all responses`);
   });
 } 
