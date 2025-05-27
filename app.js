@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3001;
 
 // CORS middleware with proper configuration
 app.use(cors({
-  origin: ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'],  // Allow specific origins
+  origin: ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'],  // Allow specific origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Origin'],
   credentials: true,
@@ -21,13 +21,17 @@ app.use(cors({
 // Handle OPTIONS requests explicitly
 app.options('*', (req, res) => {
   // Set specific origins for CORS
-  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'];
+  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'];
   const origin = req.headers.origin;
   
-  if (allowedOrigins.includes(origin)) {
+  // Always respond to localhost:8080 with correct CORS headers
+  if (origin === 'http://localhost:8080') {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
+  } else if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   } else {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080'); // Default to localhost:8080
+    // If origin is not in our list, default to localhost:8080
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
   }
   
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -38,13 +42,17 @@ app.options('*', (req, res) => {
 
 // Add a custom middleware to ensure CORS headers are set on all responses
 app.use((req, res, next) => {
-  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'];
+  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'];
   const origin = req.headers.origin;
   
-  if (allowedOrigins.includes(origin)) {
+  // Always prioritize localhost:8080
+  if (origin === 'http://localhost:8080') {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
+  } else if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   } else {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080'); // Default to localhost:8080
+    // If origin is not in our list, default to localhost:8080
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
   }
   
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -64,13 +72,17 @@ app.post('/api/execute', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   // Set CORS headers for this specific response based on origin
-  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'https://agent-flow-builder.vercel.app'];
+  const allowedOrigins = ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173', 'https://agent-flow-builder.vercel.app'];
   const origin = req.headers.origin;
   
-  if (allowedOrigins.includes(origin)) {
+  // Always prioritize localhost:8080
+  if (origin === 'http://localhost:8080') {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
+  } else if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   } else {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:8080'); // Default to localhost:8080
+    // If origin is not in our list, default to localhost:8080
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
   }
   
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -536,8 +548,9 @@ export default app;
 if (process.env.NODE_ENV !== 'vercel') {
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
-    console.log(`🔓 CORS is enabled for specific origins, including http://localhost:8080`);
+    console.log(`🔓 CORS is enabled with priority for http://localhost:8080`);
     console.log(`🛡️  Full CORS headers are being set on all responses`);
     console.log(`🔌 MCP Agent support is enabled with filesystem, github, and time tools`);
+    console.log(`👉 Ready to accept requests from http://localhost:8080`);
   });
 } 
