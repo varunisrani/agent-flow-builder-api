@@ -158,6 +158,23 @@ app.post('/api/execute', async (req, res) => {
     console.log('📝 Creating __init__.py file...');
     await sbx.files.write('workspace/multi_tool_agent/__init__.py', 'from .agent import root_agent\n__all__ = ["root_agent"]\n');
     console.log('✅ Created __init__.py file');
+    
+    // Create accessible_files directory for MCP filesystem tool
+    console.log('📁 Creating accessible_files directory for MCP filesystem tool...');
+    await sbx.commands.run('mkdir -p workspace/multi_tool_agent/accessible_files');
+    
+    // Add some sample files to the accessible_files directory
+    await sbx.files.write('workspace/multi_tool_agent/accessible_files/sample.txt', 'This is a sample text file for the MCP filesystem tool.');
+    await sbx.files.write('workspace/multi_tool_agent/accessible_files/notes.md', '# Sample Notes\n\nThis is a markdown file that can be accessed by the MCP filesystem tool.');
+    await sbx.files.write('workspace/multi_tool_agent/accessible_files/data.json', JSON.stringify({
+      name: "Sample Data",
+      items: [1, 2, 3, 4, 5],
+      nested: {
+        key: "value"
+      }
+    }, null, 2));
+    
+    console.log('✅ Created sample files for MCP filesystem tool');
     console.log('✅ All files written successfully\n');
 
     // Set up Python environment with a compatible Python version
@@ -187,7 +204,7 @@ app.post('/api/execute', async (req, res) => {
     
     console.log('📦 Activating virtual environment and installing dependencies...');
     console.log('  • Installing google-adk package...');
-    const pipResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install google-adk -v');
+    const pipResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install google-adk[mcp] google-adk mcp -v');
     console.log(`  • Exit code: ${pipResult.exitCode}`);
     console.log('  • Dependency installation details:');
     if (pipResult.stdout) {
