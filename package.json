@@ -13,7 +13,8 @@
   "private": false,
   "scripts": {
     "start": "node app.js",
-    "dev": "node app.js"
+    "dev": "node app.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit simple.test.js"
   },
   "dependencies": {
     "@e2b/code-interpreter": "^1.5.0",
@@ -26,5 +27,9 @@
   "bugs": {
     "url": "https://github.com/render-examples/express-hello-world/issues"
   },
-  "homepage": "https://github.com/render-examples/express-hello-world#readme"
+  "homepage": "https://github.com/render-examples/express-hello-world#readme",
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.1"
+  }
 }
