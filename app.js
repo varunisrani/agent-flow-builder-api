@@ -154,11 +154,77 @@ app.post('/api/execute', async (req, res) => {
       await sbx.files.write(`workspace/multi_tool_agent/${filename}`, content);
       console.log(`✅ Created ${filename}`);
     }
+
+    // Create a fallback non-MCP version of the agent if this is an MCP agent
+    if (isMcpAgent) {
+      console.log('📝 Creating fallback non-MCP agent version...');
+      const fallbackAgentContent = `from google.adk.agents import LlmAgent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types  # For Content/Part
+import asyncio
+import os
+
+# Fallback agent without MCP tools
+root_agent = LlmAgent(
+    name="DocQueryAgent",
+    model="gemini-2.0-flash",
+    description="An LlmAgent that handles user queries about documentation.",
+    instruction="You are a helpful assistant that can answer questions and provide information. Note: MCP tools are not available in this fallback mode.",
+    tools=[]  # No tools in fallback mode
+)
+
+# Session service and runner setup - MUST INCLUDE app_name
+session_service = InMemorySessionService()
+runner = Runner(agent=root_agent, session_service=session_service, app_name="DocQueryAgent")
+
+async def main():
+    # Create a session
+    user_id = "user"
+    session = session_service.create_session(state={}, app_name="DocQueryAgent", user_id=user_id)
+    session_id = session.id
+
+    # Create an initial message (Content object)
+    new_message = types.Content(
+        role="user",
+        parts=[types.Part(text="Hello, agent!")]
+    )
+
+    # Run the agent
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=new_message
+    ):
+        print(event)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+__all__ = ["root_agent"]
+`;
+      await sbx.files.write('workspace/multi_tool_agent/agent_fallback.py', fallbackAgentContent);
+      console.log('✅ Created fallback agent version');
+    }
     
     // Create __init__.py file to make multi_tool_agent a proper Python package
     console.log('📝 Creating __init__.py file...');
-    await sbx.files.write('workspace/multi_tool_agent/__init__.py', 'from .agent import root_agent\n__all__ = ["root_agent"]\n');
-    console.log('✅ Created __init__.py file');
+    const initPyContent = `# Try to import from the main agent, fallback to agent_fallback if MCP fails
+try:
+    from .agent import root_agent
+except ImportError as e:
+    print(f"Warning: Failed to import main agent: {e}")
+    try:
+        from .agent_fallback import root_agent
+        print("Using fallback agent without MCP tools")
+    except ImportError as fallback_error:
+        print(f"Error: Could not import fallback agent either: {fallback_error}")
+        raise
+
+__all__ = ["root_agent"]
+`;
+    await sbx.files.write('workspace/multi_tool_agent/__init__.py', initPyContent);
+    console.log('✅ Created __init__.py file with fallback support');
     
     // Create accessible_files directory for MCP filesystem tool
     console.log('📁 Creating accessible_files directory for MCP filesystem tool...');
@@ -205,39 +271,96 @@ app.post('/api/execute', async (req, res) => {
     
     console.log('📦 Activating virtual environment and installing dependencies...');
     console.log('  • Installing google-adk package...');
-    const pipResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install google-adk[mcp] google-adk mcp -v');
-    console.log(`  • Exit code: ${pipResult.exitCode}`);
-    console.log('  • Dependency installation details:');
-    if (pipResult.stdout) {
-      const pipLogs = pipResult.stdout.split('\n').map(line => `    ${line}`).join('\n');
-      console.log(pipLogs);
+
+    // First, try to install google-adk with MCP extra
+    let mcpInstallSuccess = false;
+    try {
+      const pipResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install "google-adk[mcp]" -v');
+      console.log(`  • google-adk[mcp] exit code: ${pipResult.exitCode}`);
+      if (pipResult.exitCode === 0) {
+        mcpInstallSuccess = true;
+        console.log('  • ✅ Successfully installed google-adk with MCP support');
+      } else {
+        console.log('  • ⚠️ google-adk[mcp] installation failed, trying alternative approach');
+        if (pipResult.stderr) {
+          console.log('  • Error details:', pipResult.stderr);
+        }
+      }
+    } catch (error) {
+      console.log(`  • ⚠️ Error installing google-adk[mcp]: ${error.message}`);
     }
-    if (pipResult.stderr) {
-      console.log('  • Errors/Warnings:');
-      const pipErrors = pipResult.stderr.split('\n').map(line => `    ${line}`).join('\n');
-      console.log(pipErrors);
-    }
-    
-    // Install MCP-specific dependencies if needed
-    if (isMcpAgent) {
-      console.log('  • Installing MCP-specific dependencies...');
+
+    // If MCP extra failed, install google-adk and MCP separately
+    if (!mcpInstallSuccess) {
+      console.log('  • Installing google-adk and MCP dependencies separately...');
       try {
-        const mcpResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install -U "google-adk[mcp]" aiohttp');
+        // Install base google-adk
+        const adkResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install google-adk -v');
+        console.log(`  • google-adk exit code: ${adkResult.exitCode}`);
+
+        // Install MCP separately
+        const mcpResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install mcp aiohttp -v');
         console.log(`  • MCP dependencies exit code: ${mcpResult.exitCode}`);
-        if (mcpResult.stdout) console.log(`  • MCP output: ${mcpResult.stdout}`);
-        if (mcpResult.stderr) console.log(`  • MCP errors: ${mcpResult.stderr}`);
+
+        if (adkResult.exitCode === 0 && mcpResult.exitCode === 0) {
+          console.log('  • ✅ Successfully installed google-adk and MCP dependencies separately');
+          mcpInstallSuccess = true;
+        } else {
+          console.log('  • ❌ Failed to install dependencies separately');
+          if (adkResult.stderr) console.log('  • ADK errors:', adkResult.stderr);
+          if (mcpResult.stderr) console.log('  • MCP errors:', mcpResult.stderr);
+        }
       } catch (error) {
-        console.log(`  • ⚠️ Warning: Error installing MCP dependencies: ${error.message}`);
+        console.log(`  • ❌ Error installing dependencies separately: ${error.message}`);
+      }
+    }
+
+    // Install additional MCP-specific dependencies if this is an MCP agent
+    if (isMcpAgent && mcpInstallSuccess) {
+      console.log('  • Installing additional MCP-specific dependencies...');
+      try {
+        const extraMcpResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install anyio pydantic websockets httpx-sse');
+        console.log(`  • Extra MCP dependencies exit code: ${extraMcpResult.exitCode}`);
+        if (extraMcpResult.stdout) console.log(`  • Extra MCP output: ${extraMcpResult.stdout}`);
+        if (extraMcpResult.stderr) console.log(`  • Extra MCP errors: ${extraMcpResult.stderr}`);
+      } catch (error) {
+        console.log(`  • ⚠️ Warning: Error installing extra MCP dependencies: ${error.message}`);
       }
     }
     
     // Verify the installation
     console.log('\n📋 Verifying installation...');
-    const verifyResult = await sbx.commands.run('source workspace/venv/bin/activate && pip list | grep google-adk');
+    const verifyResult = await sbx.commands.run('source workspace/venv/bin/activate && pip list | grep -E "(google-adk|mcp)"');
     if (verifyResult.stdout) {
-      console.log(`  • Installed: ${verifyResult.stdout.trim()}`);
+      console.log(`  • Installed packages:`);
+      verifyResult.stdout.split('\n').forEach(line => {
+        if (line.trim()) console.log(`    ${line.trim()}`);
+      });
     } else {
-      console.log('  • Warning: Could not verify google-adk installation');
+      console.log('  • Warning: Could not verify package installations');
+    }
+
+    // Test MCP import if this is an MCP agent
+    if (isMcpAgent) {
+      console.log('  • Testing MCP imports...');
+      try {
+        const mcpTestResult = await sbx.commands.run(`source workspace/venv/bin/activate && python3 -c "
+try:
+    from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters
+    from mcp import ClientSession
+    print('✅ MCP imports successful')
+except ImportError as e:
+    print(f'❌ MCP import failed: {e}')
+    exit(1)
+"`);
+        console.log(`    ${mcpTestResult.stdout.trim()}`);
+        if (mcpTestResult.exitCode !== 0) {
+          console.log('  • ⚠️ Warning: MCP imports failed, agent may not work correctly');
+          if (mcpTestResult.stderr) console.log(`    Error: ${mcpTestResult.stderr}`);
+        }
+      } catch (error) {
+        console.log(`  • ⚠️ Warning: Could not test MCP imports: ${error.message}`);
+      }
     }
     
     // Create ADK config file
@@ -315,7 +438,12 @@ echo "This is a test file created for MCP filesystem access." > multi_tool_agent
 # Check if ADK is installed correctly
 if ! command -v adk &> /dev/null; then
     echo "ADK command not found. Installing..."
-    pip install --upgrade google-adk
+    # Try with MCP support first, fallback to base installation
+    if ! pip install --upgrade "google-adk[mcp]" 2>/dev/null; then
+        echo "MCP extra not available, installing base google-adk and MCP separately..."
+        pip install --upgrade google-adk
+        pip install mcp aiohttp anyio pydantic websockets httpx-sse
+    fi
 fi
 
 # Install Node.js packages needed for MCP tools
@@ -335,6 +463,31 @@ pkill -f "adk web" || true
 
 # Add the workspace directory to PYTHONPATH
 export PYTHONPATH=/home/user/workspace:$PYTHONPATH
+
+# Test if MCP imports work and switch to fallback if needed
+if [ -f "multi_tool_agent/agent.py" ] && grep -q "MCPToolset" multi_tool_agent/agent.py; then
+    echo "Testing MCP imports..."
+    if ! python3 -c "
+try:
+    from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters
+    from mcp import ClientSession
+    print('MCP imports successful')
+except ImportError as e:
+    print(f'MCP import failed: {e}')
+    exit(1)
+" 2>/dev/null; then
+        echo "MCP imports failed, switching to fallback agent..."
+        if [ -f "multi_tool_agent/agent_fallback.py" ]; then
+            mv multi_tool_agent/agent.py multi_tool_agent/agent_mcp.py
+            mv multi_tool_agent/agent_fallback.py multi_tool_agent/agent.py
+            echo "Switched to fallback agent without MCP tools"
+        else
+            echo "Warning: No fallback agent available"
+        fi
+    else
+        echo "MCP imports successful, using MCP-enabled agent"
+    fi
+fi
 
 # Start ADK web server
 echo "Starting ADK web server..."
