@@ -275,7 +275,7 @@ __all__ = ["root_agent"]
     // First, try to install google-adk with MCP extra
     let mcpInstallSuccess = false;
     try {
-      const pipResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install "google-adk[mcp]" -v');
+      const pipResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install "google-adk[mcp]" mem0 langfuse memzero m0 -v');
       console.log(`  • google-adk[mcp] exit code: ${pipResult.exitCode}`);
       if (pipResult.exitCode === 0) {
         mcpInstallSuccess = true;
@@ -295,7 +295,7 @@ __all__ = ["root_agent"]
       console.log('  • Installing google-adk and MCP dependencies separately...');
       try {
         // Install base google-adk
-        const adkResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install google-adk -v');
+        const adkResult = await sbx.commands.run('source workspace/venv/bin/activate && pip install google-adk mem0 langfuse memzero m0 -v');
         console.log(`  • google-adk exit code: ${adkResult.exitCode}`);
 
         // Install MCP separately
@@ -366,7 +366,7 @@ except ImportError as e:
     // Create ADK config file
     console.log('📝 Creating ADK config file...');
     await sbx.files.write('workspace/adk.config.json', JSON.stringify({
-      "api_key": "AIzaSyDKYSA-rs_GE5mCqA9b1yw8NFWH9fSn-Vc"
+      "api_key": process.env.GOOGLE_API_KEY || process.env.ADK_API_KEY || ""
     }, null, 2));
     console.log('✅ ADK config file created');
     
@@ -377,10 +377,34 @@ except ImportError as e:
     console.log('⚡ Starting agent with ADK web command...');
     
     try {
-      // Create a .env file with the Google ADK API key and Smithery API key
-      await sbx.files.write('workspace/.env', `GOOGLE_API_KEY=AIzaSyDKYSA-rs_GE5mCqA9b1yw8NFWH9fSn-Vc
-ADK_API_KEY=AIzaSyDKYSA-rs_GE5mCqA9b1yw8NFWH9fSn-Vc
-SMITHERY_API_KEY=10f9abbc-518d-44c0-845a-27aac70347b3
+      // Create a .env file with environment variables from deployed server
+      await sbx.files.write('workspace/.env', `# Google API Key
+GOOGLE_API_KEY=${process.env.GOOGLE_API_KEY || ''}
+
+# GitHub Personal Access Token
+GITHUB_PERSONAL_ACCESS_TOKEN=${process.env.GITHUB_PERSONAL_ACCESS_TOKEN || ''}
+LANGFUSE_SECRET_KEY=${process.env.LANGFUSE_SECRET_KEY || ''}
+LANGFUSE_PUBLIC_KEY=${process.env.LANGFUSE_PUBLIC_KEY || ''}
+LANGFUSE_HOST=${process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com'}
+MEM0_API_KEY=${process.env.MEM0_API_KEY || ''}
+OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}
+ADK_API_KEY=${process.env.ADK_API_KEY || process.env.GOOGLE_API_KEY || ''}
+SMITHERY_API_KEY=${process.env.SMITHERY_API_KEY || ''}
+`);
+
+      // Create requirements.txt file with all necessary packages
+      await sbx.files.write('workspace/requirements.txt', `google-adk
+python-dotenv
+mem0
+langfuse
+memzero
+m0
+mcp
+aiohttp
+anyio
+pydantic
+websockets
+httpx-sse
 `);
       
       // Create a Python script to check if port is open
@@ -422,9 +446,9 @@ set -e  # Exit on any error
 source ./venv/bin/activate
 
 # Set environment variables for Google ADK and Smithery
-export GOOGLE_API_KEY=\${GOOGLE_API_KEY:-$GOOGLE_API_KEY}
-export ADK_API_KEY=\${ADK_API_KEY:-$ADK_API_KEY}
-export SMITHERY_API_KEY=\${SMITHERY_API_KEY:-$SMITHERY_API_KEY}
+export GOOGLE_API_KEY=\${GOOGLE_API_KEY:-${process.env.GOOGLE_API_KEY || ''}}
+export ADK_API_KEY=\${ADK_API_KEY:-${process.env.ADK_API_KEY || process.env.GOOGLE_API_KEY || ''}}
+export SMITHERY_API_KEY=\${SMITHERY_API_KEY:-${process.env.SMITHERY_API_KEY || ''}}
 
 # Change to workspace directory
 cd /home/user/workspace
@@ -439,9 +463,9 @@ echo "This is a test file created for MCP filesystem access." > multi_tool_agent
 if ! command -v adk &> /dev/null; then
     echo "ADK command not found. Installing..."
     # Try with MCP support first, fallback to base installation
-    if ! pip install --upgrade "google-adk[mcp]" 2>/dev/null; then
+    if ! pip install --upgrade "google-adk[mcp]" mem0 langfuse memzero m0 2>/dev/null; then
         echo "MCP extra not available, installing base google-adk and MCP separately..."
-        pip install --upgrade google-adk
+        pip install --upgrade google-adk mem0 langfuse memzero m0
         pip install mcp aiohttp anyio pydantic websockets httpx-sse
     fi
 fi
